@@ -24,7 +24,7 @@ def setup_google_sheets():
     try:
         if 'GOOGLE_CREDENTIALS' in os.environ:
             # Production: Read from environment variable
-            print("Using production Google credentials from environment variable")
+            logger.info("Using production Google credentials from environment variable")
             creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
             credentials = Credentials.from_service_account_info(
                 creds_json,
@@ -33,12 +33,12 @@ def setup_google_sheets():
             gc = gspread.authorize(credentials)
         else:
             # Development: Read from local file
-            print("Using local credentials.json file")
+            logger.info("Using local credentials.json file")
             gc = gspread.service_account(filename='credentials.json')
         
         return gc
     except Exception as e:
-        print(f"Error setting up Google Sheets: {e}")
+        logger.error(f"Error setting up Google Sheets: {e}")
         raise
 
 # Initialize Google Sheets client
@@ -57,7 +57,6 @@ class SGIBot:
         try:
             self.sheet = gc.open_by_key(self.spreadsheet_id).sheet1
             logger.info("Google Sheets connection established")
-            
         except Exception as e:
             logger.error(f"Failed to setup Google Sheets: {e}")
             raise
@@ -80,13 +79,10 @@ class SGIBot:
         """Find challenger by Telegram user ID"""
         try:
             records = self.sheet.get_all_records()
-            
             for i, record in enumerate(records, start=2):
                 if str(record.get('User_ID', '')) == str(user_id):
                     return i, record
-            
             return None, None
-            
         except Exception as e:
             logger.error(f"Error finding challenger {user_id}: {e}")
             return None, None
@@ -102,22 +98,21 @@ class SGIBot:
             # Add new challenger with updated column structure
             new_row = [
                 first_name,           # Name
-                str(user_id),        # User_ID
-                group,               # Group (Senior/Junior)
-                0,                   # Current_Points
-                0,                   # Strikes
-                "Active",            # Status
-                "",                  # Daily1_Last (last completion date)
-                "",                  # Daily2_Last (last completion date)
-                "",                  # Daily3_Last (last completion date)
-                "",                  # Weekly1_Week (week when completed)
-                ""                   # Weekly2_Week (week when completed)
+                str(user_id),         # User_ID
+                group,                # Group (Senior/Junior)
+                0,                    # Current_Points
+                0,                    # Strikes
+                "Active",             # Status
+                "",                   # Daily1_Last (last completion date)
+                "",                   # Daily2_Last (last completion date)
+                "",                   # Daily3_Last (last completion date)
+                "",                   # Weekly1_Week (week when completed)
+                ""                    # Weekly2_Week (week when completed)
             ]
             
             self.sheet.append_row(new_row)
             logger.info(f"Registered new challenger: {first_name} (ID: {user_id})")
             return True, f"Welcome {first_name}! You're registered in the {group} group"
-            
         except Exception as e:
             logger.error(f"Error registering challenger: {e}")
             return False, "Unable to register. Please try again"
@@ -129,10 +124,8 @@ class SGIBot:
                 return False, "Challenge is being reset. Try again in a few minutes"
             
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return False, "You are not registered. Use /register to join the challenge"
-            
             if challenger.get('Status') != 'Active':
                 return False, "You have been eliminated from the challenge"
             
@@ -147,7 +140,6 @@ class SGIBot:
                 'Weekly1': 'Weekly1_Week',
                 'Weekly2': 'Weekly2_Week'
             }
-            
             if task_type not in task_column_mapping:
                 return False, "Invalid task type"
             
@@ -172,13 +164,11 @@ class SGIBot:
             headers = self.sheet.row_values(1)
             task_col = None
             points_col = None
-            
             for i, header in enumerate(headers, start=1):
                 if header == column_name:
                     task_col = i
                 elif header == 'Current_Points':
                     points_col = i
-            
             if not task_col or not points_col:
                 return False, "System error. Please contact admin"
             
@@ -192,7 +182,6 @@ class SGIBot:
             
             logger.info(f"User {user_id} completed {task_type}, added {points_to_add} points")
             return True, f"Task completed. +{points_to_add} points. Total: {new_points}"
-            
         except Exception as e:
             logger.error(f"Error updating task for {user_id}: {e}")
             return False, "Unable to connect to database. Please try again in a moment"
@@ -201,7 +190,6 @@ class SGIBot:
         """Get challenger's current status"""
         try:
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return "You are not registered. Use /register to join the challenge"
             
@@ -237,9 +225,7 @@ Daily 3: {'Done' if daily3_done else 'Pending'}
 This Week's Tasks (5 pts each):
 Weekly 1: {'Done' if weekly1_done else 'Pending'}
 Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
-            
             return status_msg
-            
         except Exception as e:
             logger.error(f"Error getting status for {user_id}: {e}")
             return "Unable to connect to database. Please try again in a moment"
@@ -248,45 +234,35 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
         """Generate leaderboard"""
         try:
             records = self.sheet.get_all_records()
-            
             # Separate by groups and filter active users
             senior_users = []
             junior_users = []
-            
             for record in records:
                 if record.get('Status') != 'Active':
                     continue
-                    
                 user_data = {
                     'name': record.get('Name', 'Unknown'),
                     'points': int(record.get('Current_Points', 0))
                 }
-                
                 if record.get('Group') == 'Senior':
                     senior_users.append(user_data)
                 else:
                     junior_users.append(user_data)
-            
             # Sort by points
             senior_users.sort(key=lambda x: x['points'], reverse=True)
             junior_users.sort(key=lambda x: x['points'], reverse=True)
-            
             # Build leaderboard message
             msg = "SGI Challenge Leaderboard:\n\n"
-            
             if senior_users:
                 msg += "Senior Group:\n"
                 for i, user in enumerate(senior_users[:10], 1):
                     msg += f"{i}. {user['name']}: {user['points']} pts\n"
                 msg += "\n"
-            
             if junior_users:
                 msg += "Junior Group:\n"
                 for i, user in enumerate(junior_users[:10], 1):
                     msg += f"{i}. {user['name']}: {user['points']} pts\n"
-            
             return msg if senior_users or junior_users else "No active challengers found"
-            
         except Exception as e:
             logger.error(f"Error generating leaderboard: {e}")
             return "Unable to connect to database. Please try again in a moment"
@@ -295,7 +271,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
         """Add strike to a user (admin only)"""
         try:
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return False, "User not found"
             
@@ -306,7 +281,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
             headers = self.sheet.row_values(1)
             strikes_col = None
             status_col = None
-            
             for i, header in enumerate(headers, start=1):
                 if header == 'Strikes':
                     strikes_col = i
@@ -325,7 +299,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
             
             logger.info(f"Strike added to user {user_id}: {reason}")
             return True, status_msg
-            
         except Exception as e:
             logger.error(f"Error adding strike: {e}")
             return False, "Unable to connect to database. Please try again in a moment"
@@ -334,12 +307,10 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
         """Remove strike from a user (admin only)"""
         try:
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return False, "User not found"
             
             current_strikes = int(challenger.get('Strikes', 0))
-            
             if current_strikes <= 0:
                 return False, "User has no strikes to remove"
             
@@ -349,7 +320,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
             headers = self.sheet.row_values(1)
             strikes_col = None
             status_col = None
-            
             for i, header in enumerate(headers, start=1):
                 if header == 'Strikes':
                     strikes_col = i
@@ -368,7 +338,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
             
             logger.info(f"Strike removed from user {user_id}")
             return True, status_msg
-            
         except Exception as e:
             logger.error(f"Error removing strike: {e}")
             return False, "Unable to connect to database. Please try again in a moment"
@@ -377,7 +346,6 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
         """Get detailed stats for a specific user (admin only)"""
         try:
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return "User not found"
             
@@ -421,9 +389,7 @@ Daily 2: {challenger.get('Daily2_Last', 'Never')}
 Daily 3: {challenger.get('Daily3_Last', 'Never')}
 Weekly 1: {challenger.get('Weekly1_Week', 'Never')}
 Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
-            
             return stats_msg
-            
         except Exception as e:
             logger.error(f"Error getting user stats for {user_id}: {e}")
             return "Unable to connect to database. Please try again in a moment"
@@ -432,12 +398,10 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
         """Add or remove points from a user (admin only)"""
         try:
             row_num, challenger = self.find_challenger(user_id)
-            
             if not challenger:
                 return False, "User not found"
             
             current_points = int(challenger.get('Current_Points', 0))
-            
             if action == "add":
                 new_points = current_points + points
                 action_text = "added"
@@ -450,12 +414,10 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
             # Find points column
             headers = self.sheet.row_values(1)
             points_col = None
-            
             for i, header in enumerate(headers, start=1):
                 if header == 'Current_Points':
                     points_col = i
                     break
-            
             if not points_col:
                 return False, "System error. Please contact admin"
             
@@ -464,7 +426,6 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
             
             logger.info(f"Points {action_text} for user {user_id}: {points} points")
             return True, f"Points {action_text}: {points}. New total: {new_points}"
-            
         except Exception as e:
             logger.error(f"Error adjusting points for user {user_id}: {e}")
             return False, "Unable to connect to database. Please try again in a moment"
@@ -473,7 +434,6 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
         """Get admin statistics"""
         try:
             records = self.sheet.get_all_records()
-            
             total_users = len(records)
             active_users = len([r for r in records if r.get('Status') == 'Active'])
             eliminated_users = len([r for r in records if r.get('Status') == 'Eliminated'])
@@ -515,9 +475,7 @@ Weekly 2: {weekly2_this_week}
 Points:
 Total Points: {total_points}
 Average: {avg_points} pts/user"""
-            
             return stats_msg
-            
         except Exception as e:
             logger.error(f"Error getting admin stats: {e}")
             return "Unable to connect to database. Please try again in a moment"
@@ -526,33 +484,27 @@ Average: {avg_points} pts/user"""
         """Reset all user progress (admin only)"""
         try:
             self.challenge_active = False
-            
             records = self.sheet.get_all_records()
-            
             # Reset all users
             for i, record in enumerate(records, start=2):
                 # Reset points and tasks, keep strikes and status for eliminated users
                 if record.get('Status') == 'Eliminated':
                     continue
-                
                 # Find column indices
                 headers = self.sheet.row_values(1)
                 updates = []
-                
                 for j, header in enumerate(headers, start=1):
                     if header == 'Current_Points':
                         updates.append((i, j, 0))
                     elif header in ['Daily1_Last', 'Daily2_Last', 'Daily3_Last', 'Weekly1_Week', 'Weekly2_Week']:
                         updates.append((i, j, ''))
-                
-                # Batch update
+                # Batch update (simple looped updates)
                 for row, col, value in updates:
                     self.sheet.update_cell(row, col, value)
             
             self.challenge_active = True
             logger.info("Challenge reset completed")
             return True, "Challenge reset completed. All active users back to 0 points"
-            
         except Exception as e:
             logger.error(f"Error resetting challenge: {e}")
             self.challenge_active = True
@@ -584,13 +536,11 @@ Weekly tasks: 5 points each (can complete once per week)
 6 days per week (Sunday is rest day)
 
 Good luck!"""
-    
     await update.message.reply_text(welcome_msg)
 
 async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /register command"""
     user = update.effective_user
-    
     # Check for group argument
     if not context.args or context.args[0].lower() not in ['senior', 'junior']:
         await update.message.reply_text(
@@ -599,25 +549,20 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/register junior (for new members)"
         )
         return
-    
     group = context.args[0].capitalize()
     success, message = bot_instance.register_challenger(user.id, user.first_name, group)
-    
     await update.message.reply_text(message)
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /done command"""
     user = update.effective_user
-    
     if not context.args:
         await update.message.reply_text(
             "Please specify the task:\n"
             "Example: /done daily1 or /done weekly2"
         )
         return
-    
     task = context.args[0].lower()
-    
     # Map to column names
     task_mapping = {
         'daily1': 'Daily1',
@@ -626,13 +571,11 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'weekly1': 'Weekly1',
         'weekly2': 'Weekly2'
     }
-    
     if task not in task_mapping:
         await update.message.reply_text(
             "Invalid task. Valid options: daily1, daily2, daily3, weekly1, weekly2"
         )
         return
-    
     success, message = bot_instance.update_task_completion(user.id, task_mapping[task])
     await update.message.reply_text(message)
 
@@ -651,11 +594,9 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_help command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     help_msg = """Admin Commands:
 
 /admin_help - Show this help message
@@ -673,159 +614,127 @@ Examples:
 /admin_user_stats 123456789
 
 Note: user_id is the Telegram User ID (number), not username."""
-    
     await update.message.reply_text(help_msg)
 
 async def admin_strike_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_strike command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     if len(context.args) < 2:
         await update.message.reply_text(
             "Usage: /admin_strike <user_id> <reason>\n"
             "Example: /admin_strike 123456789 Missed deadline"
         )
         return
-    
     try:
         target_user_id = int(context.args[0])
         reason = ' '.join(context.args[1:])
-        
         success, message = bot_instance.add_strike(target_user_id, reason)
         await update.message.reply_text(message)
-        
     except ValueError:
         await update.message.reply_text("Invalid user ID. Must be a number")
 
 async def admin_remove_strike_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_remove_strike command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     if len(context.args) < 1:
         await update.message.reply_text(
             "Usage: /admin_remove_strike <user_id>\n"
             "Example: /admin_remove_strike 123456789"
         )
         return
-    
     try:
         target_user_id = int(context.args[0])
-        
         success, message = bot_instance.remove_strike(target_user_id)
         await update.message.reply_text(message)
-        
     except ValueError:
         await update.message.reply_text("Invalid user ID. Must be a number")
 
 async def admin_user_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_user_stats command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     if len(context.args) < 1:
         await update.message.reply_text(
             "Usage: /admin_user_stats <user_id>\n"
             "Example: /admin_user_stats 123456789"
         )
         return
-    
     try:
         target_user_id = int(context.args[0])
-        
         stats_msg = bot_instance.get_user_stats(target_user_id)
         await update.message.reply_text(stats_msg)
-        
     except ValueError:
         await update.message.reply_text("Invalid user ID. Must be a number")
 
 async def admin_add_points_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_add_points command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     if len(context.args) < 2:
         await update.message.reply_text(
             "Usage: /admin_add_points <user_id> <points>\n"
             "Example: /admin_add_points 123456789 15"
         )
         return
-    
     try:
         target_user_id = int(context.args[0])
         points_to_add = int(context.args[1])
-        
         if points_to_add <= 0:
             await update.message.reply_text("Points must be a positive number")
             return
-        
         success, message = bot_instance.adjust_points(target_user_id, points_to_add, "add")
         await update.message.reply_text(message)
-        
     except ValueError:
         await update.message.reply_text("Invalid input. Both user ID and points must be numbers")
 
 async def admin_remove_points_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_remove_points command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     if len(context.args) < 2:
         await update.message.reply_text(
             "Usage: /admin_remove_points <user_id> <points>\n"
             "Example: /admin_remove_points 123456789 10"
         )
         return
-    
     try:
         target_user_id = int(context.args[0])
         points_to_remove = int(context.args[1])
-        
         if points_to_remove <= 0:
             await update.message.reply_text("Points must be a positive number")
             return
-        
         success, message = bot_instance.adjust_points(target_user_id, points_to_remove, "remove")
         await update.message.reply_text(message)
-        
     except ValueError:
         await update.message.reply_text("Invalid input. Both user ID and points must be numbers")
 
 async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_stats command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     stats_msg = bot_instance.get_admin_stats()
     await update.message.reply_text(stats_msg)
 
 async def admin_reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_reset command"""
     user = update.effective_user
-    
     if not bot_instance.is_admin(user.id):
         await update.message.reply_text("You are not authorized to use admin commands")
         return
-    
     success, message = bot_instance.reset_challenge()
     await update.message.reply_text(message)
 
@@ -850,7 +759,7 @@ def main():
         # Initialize bot instance
         bot_instance = SGIBot(SPREADSHEET_ID, ADMIN_USER_IDS)
         
-        # Create application
+        # Create application (PTB v20+)
         application = Application.builder().token(BOT_TOKEN).build()
         
         # Add command handlers
