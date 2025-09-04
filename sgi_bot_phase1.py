@@ -26,7 +26,10 @@ def setup_google_sheets():
             # Production: Read from environment variable
             print("Using production Google credentials from environment variable")
             creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-            credentials = Credentials.from_service_account_info(creds_json)
+            credentials = Credentials.from_service_account_info(
+                creds_json,
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
+            )
             gc = gspread.authorize(credentials)
         else:
             # Development: Read from local file
