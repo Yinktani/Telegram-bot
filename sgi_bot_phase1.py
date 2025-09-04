@@ -1,3 +1,12 @@
+import sys
+import os
+
+# Clear any cached telegram modules
+telegram_modules = [name for name in sys.modules if name.startswith('telegram')]
+for module_name in telegram_modules:
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+
 import os
 import logging
 import json
@@ -791,3 +800,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
