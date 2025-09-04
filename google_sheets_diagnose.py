@@ -1,13 +1,47 @@
 #!/usr/bin/env python3
 """
 Diagnostic script to isolate Google Sheets connection issues
+with retry-capable setup function.
 """
 
 import os
 import json
+import time
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 
+# -------------------------------------------------------------------
+# Google Sheets setup with retry logic
+# -------------------------------------------------------------------
+def setup_google_sheets():
+    """Setup Google Sheets client for both production and development"""
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    for attempt in range(3):  # Try 3 times
+        try:
+            if 'GOOGLE_CREDENTIALS' in os.environ:
+                print("Using production Google credentials from environment variable")
+                creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
+                credentials = Credentials.from_service_account_info(creds_json)
+                gc = gspread.authorize(credentials)
+            else:
+                print("Using local credentials.json file")
+                gc = gspread.service_account(filename='credentials.json')
+            
+            return gc
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < 2:  # Don't wait on last attempt
+                print("Retrying in 5 seconds...")
+                time.sleep(5)
+            else:
+                print("All attempts failed")
+                raise
+
+# -------------------------------------------------------------------
+# Diagnostics
+# -------------------------------------------------------------------
 def diagnose_credentials():
     """Check credentials.json file"""
     print("🔍 Diagnosing credentials.json...")
@@ -81,18 +115,14 @@ def test_spreadsheet_access():
     """Test actual spreadsheet access"""
     try:
         load_dotenv()
-        
         import gspread
         from google.oauth2.service_account import Credentials
         
         print("\n🔍 Testing spreadsheet access...")
         
-        creds = Credentials.from_service_account_file(
-            'credentials.json',
-            scopes=['https://www.googleapis.com/auth/spreadsheets']
-        )
+        # Use the setup function here
+        gc = setup_google_sheets()
         
-        gc = gspread.authorize(creds)
         spreadsheet_id = os.getenv('GOOGLE_SPREADSHEET_ID')
         
         if not spreadsheet_id:
@@ -122,6 +152,9 @@ def test_spreadsheet_access():
         print(f"❌ Unexpected error: {e}")
         return False
 
+# -------------------------------------------------------------------
+# Main runner
+# -------------------------------------------------------------------
 def main():
     """Run all diagnostics"""
     print("🧪 Google Sheets Connection Diagnostics\n")
