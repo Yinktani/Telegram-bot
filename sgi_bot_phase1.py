@@ -1,35 +1,14 @@
-import json
-import os
-from google.oauth2.service_account import Credentials
-
-# Google Sheets setup for production
-def setup_google_sheets():
-    if 'GOOGLE_CREDENTIALS' in os.environ:
-        # Production: Read from environment variable
-        creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-        credentials = Credentials.from_service_account_info(creds_json)
-        gc = gspread.authorize(credentials)
-    else:
-        # Development: Read from local file
-        gc = gspread.service_account(filename='credentials.json')
-    
-    return gc
-
-# Replace your current gc = gspread.service_account(filename='credentials.json') with:
-gc = setup_google_sheets()
-
-
-
 import os
 import logging
+import json
 from datetime import datetime, date
 import gspread
 from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Configure logging
@@ -38,6 +17,29 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Google Sheets setup for production/development
+def setup_google_sheets():
+    """Setup Google Sheets client for both production and development"""
+    try:
+        if 'GOOGLE_CREDENTIALS' in os.environ:
+            # Production: Read from environment variable
+            print("Using production Google credentials from environment variable")
+            creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
+            credentials = Credentials.from_service_account_info(creds_json)
+            gc = gspread.authorize(credentials)
+        else:
+            # Development: Read from local file
+            print("Using local credentials.json file")
+            gc = gspread.service_account(filename='credentials.json')
+        
+        return gc
+    except Exception as e:
+        print(f"Error setting up Google Sheets: {e}")
+        raise
+
+# Initialize Google Sheets client
+gc = setup_google_sheets()
 
 class SGIBot:
     def __init__(self, spreadsheet_id, admin_user_ids):
@@ -50,32 +52,6 @@ class SGIBot:
     def setup_google_sheets(self):
         """Initialize Google Sheets connection"""
         try:
-            # Try environment variables first (for deployment)
-            if os.getenv("GOOGLE_TYPE"):
-                creds_dict = {
-                    "type": os.getenv("GOOGLE_TYPE"),
-                    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-                    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-                    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
-                    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
-                }
-                creds = Credentials.from_service_account_info(
-                    creds_dict,
-                    scopes=['https://www.googleapis.com/auth/spreadsheets']
-                )
-            else:
-                # Use local credentials file for development
-                creds = Credentials.from_service_account_file(
-                    'credentials.json',
-                    scopes=['https://www.googleapis.com/auth/spreadsheets']
-                )
-            
-            gc = gspread.authorize(creds)
             self.sheet = gc.open_by_key(self.spreadsheet_id).sheet1
             logger.info("Google Sheets connection established")
             
