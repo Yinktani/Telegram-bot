@@ -1,0 +1,1 @@
+worker: python sgi_bot_phase1.py
