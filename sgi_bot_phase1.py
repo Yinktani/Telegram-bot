@@ -87,6 +87,18 @@ class SGIBot:
             logger.error(f"Error finding challenger {user_id}: {e}")
             return None, None
     
+    def find_challenger_by_name(self, name):
+        """Find challenger by name (case insensitive)"""
+        try:
+            records = self.sheet.get_all_records()
+            for record in records:
+                if record.get('Name', '').lower() == name.lower():
+                    return record
+            return None
+        except Exception as e:
+            logger.error(f"Error finding challenger by name {name}: {e}")
+            return None
+    
     def register_challenger(self, user_id, first_name, group):
         """Register a new challenger"""
         try:
@@ -99,7 +111,7 @@ class SGIBot:
             new_row = [
                 first_name,           # Name
                 str(user_id),         # User_ID
-                group,                # Group (Senior/Junior)
+                group,                # Group (Senior/Junior/Finalist)
                 0,                    # Current_Points
                 0,                    # Strikes
                 "Active",             # Status
@@ -112,7 +124,18 @@ class SGIBot:
             
             self.sheet.append_row(new_row)
             logger.info(f"Registered new challenger: {first_name} (ID: {user_id})")
-            return True, f"Welcome {first_name}! You're registered in the {group} group"
+            
+            # Generate congratulatory message based on group
+            if group == "Finalist":
+                congrats_msg = "Damn, you made it this far! Don't fumble the bag now 💪"
+            elif group == "Senior":
+                congrats_msg = "You know the drill - let's get it done 🔥"
+            elif group == "Junior":
+                congrats_msg = "Fresh meat! Half your seniors already rage quit. Don't be like them 😈"
+            else:
+                congrats_msg = f"Welcome {first_name}! You're registered in the {group} group"
+            
+            return True, f"Welcome {first_name}! You're registered in the {group} group.\n\n{congrats_msg}"
         except Exception as e:
             logger.error(f"Error registering challenger: {e}")
             return False, "Unable to register. Please try again"
@@ -237,6 +260,7 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
             # Separate by groups and filter active users
             senior_users = []
             junior_users = []
+            finalist_users = []
             for record in records:
                 if record.get('Status') != 'Active':
                     continue
@@ -246,13 +270,21 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
                 }
                 if record.get('Group') == 'Senior':
                     senior_users.append(user_data)
-                else:
+                elif record.get('Group') == 'Junior':
                     junior_users.append(user_data)
+                elif record.get('Group') == 'Finalist':
+                    finalist_users.append(user_data)
             # Sort by points
             senior_users.sort(key=lambda x: x['points'], reverse=True)
             junior_users.sort(key=lambda x: x['points'], reverse=True)
+            finalist_users.sort(key=lambda x: x['points'], reverse=True)
             # Build leaderboard message
             msg = "SGI Challenge Leaderboard:\n\n"
+            if finalist_users:
+                msg += "Finalist Group:\n"
+                for i, user in enumerate(finalist_users[:10], 1):
+                    msg += f"{i}. {user['name']}: {user['points']} pts\n"
+                msg += "\n"
             if senior_users:
                 msg += "Senior Group:\n"
                 for i, user in enumerate(senior_users[:10], 1):
@@ -262,7 +294,7 @@ Weekly 2: {'Done' if weekly2_done else 'Pending'}"""
                 msg += "Junior Group:\n"
                 for i, user in enumerate(junior_users[:10], 1):
                     msg += f"{i}. {user['name']}: {user['points']} pts\n"
-            return msg if senior_users or junior_users else "No active challengers found"
+            return msg if senior_users or junior_users or finalist_users else "No active challengers found"
         except Exception as e:
             logger.error(f"Error generating leaderboard: {e}")
             return "Unable to connect to database. Please try again in a moment"
@@ -439,6 +471,7 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
             eliminated_users = len([r for r in records if r.get('Status') == 'Eliminated'])
             senior_users = len([r for r in records if r.get('Group') == 'Senior'])
             junior_users = len([r for r in records if r.get('Group') == 'Junior'])
+            finalist_users = len([r for r in records if r.get('Group') == 'Finalist'])
             
             current_date = self.get_current_date_string()
             current_week = self.get_current_week_string()
@@ -462,6 +495,7 @@ Active: {active_users}
 Eliminated: {eliminated_users}
 Senior: {senior_users}
 Junior: {junior_users}
+Finalist: {finalist_users}
 
 Today's Completions:
 Daily 1: {daily1_today}
@@ -542,11 +576,12 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /register command"""
     user = update.effective_user
     # Check for group argument
-    if not context.args or context.args[0].lower() not in ['senior', 'junior']:
+    if not context.args or context.args[0].lower() not in ['senior', 'junior', 'finalist']:
         await update.message.reply_text(
             "Please specify your group:\n"
-            "/register senior (for existing members)\n"
-            "/register junior (for new members)"
+            "/register Finalist\n"
+            "/register Senior\n"
+            "/register Junior"
         )
         return
     group = context.args[0].capitalize()
@@ -606,12 +641,14 @@ async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 /admin_user_stats <user_id> - Get detailed user stats
 /admin_add_points <user_id> <points> - Add points to user
 /admin_remove_points <user_id> <points> - Remove points from user
+/admin_get_id <name> - Get user ID by name
 /admin_reset - Reset entire challenge (use with caution!)
 
 Examples:
 /admin_strike 123456789 Missed daily tasks
 /admin_add_points 123456789 15
 /admin_user_stats 123456789
+/admin_get_id John Smith
 
 Note: user_id is the Telegram User ID (number), not username."""
     await update.message.reply_text(help_msg)
@@ -720,6 +757,28 @@ async def admin_remove_points_command(update: Update, context: ContextTypes.DEFA
     except ValueError:
         await update.message.reply_text("Invalid input. Both user ID and points must be numbers")
 
+async def admin_get_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /admin_get_id command"""
+    user = update.effective_user
+    if not bot_instance.is_admin(user.id):
+        await update.message.reply_text("You are not authorized to use admin commands")
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage: /admin_get_id <name>\n"
+            "Example: /admin_get_id John Smith"
+        )
+        return
+    
+    name = ' '.join(context.args)
+    challenger = bot_instance.find_challenger_by_name(name)
+    
+    if challenger:
+        response_msg = f"Name: {challenger.get('Name', 'Unknown')}, User ID: {challenger.get('User_ID', 'Unknown')}"
+        await update.message.reply_text(response_msg)
+    else:
+        await update.message.reply_text(f"No user found with name: {name}")
+
 async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_stats command"""
     user = update.effective_user
@@ -776,6 +835,7 @@ def main():
         application.add_handler(CommandHandler("admin_user_stats", admin_user_stats_command))
         application.add_handler(CommandHandler("admin_add_points", admin_add_points_command))
         application.add_handler(CommandHandler("admin_remove_points", admin_remove_points_command))
+        application.add_handler(CommandHandler("admin_get_id", admin_get_id_command))
         application.add_handler(CommandHandler("admin_stats", admin_stats_command))
         application.add_handler(CommandHandler("admin_reset", admin_reset_command))
         
