@@ -836,6 +836,8 @@ def main():
         application.add_handler(CommandHandler("admin_add_points", admin_add_points_command))
         application.add_handler(CommandHandler("admin_remove_points", admin_remove_points_command))
         application.add_handler(CommandHandler("admin_get_id", admin_get_id_command))
+        application.add_handler(CommandHandler("admin_change_group", admin_change_group_command))
+        application.add_handler(CommandHandler("admin_delete_user", admin_delete_user_command))
         application.add_handler(CommandHandler("admin_stats", admin_stats_command))
         application.add_handler(CommandHandler("admin_reset", admin_reset_command))
         
