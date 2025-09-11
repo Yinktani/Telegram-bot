@@ -462,6 +462,53 @@ Weekly 2: {challenger.get('Weekly2_Week', 'Never')}"""
             logger.error(f"Error adjusting points for user {user_id}: {e}")
             return False, "Unable to connect to database. Please try again in a moment"
     
+    def change_user_group(self, user_id, new_group):
+        """Change a user's group (admin only)"""
+        try:
+            if new_group.capitalize() not in ['Senior', 'Junior', 'Finalist']:
+                return False, "Invalid group. Must be Senior, Junior, or Finalist"
+            
+            row_num, challenger = self.find_challenger(user_id)
+            if not challenger:
+                return False, "User not found"
+            
+            # Find group column
+            headers = self.sheet.row_values(1)
+            group_col = None
+            for i, header in enumerate(headers, start=1):
+                if header == 'Group':
+                    group_col = i
+                    break
+            if not group_col:
+                return False, "System error. Please contact admin"
+            
+            # Update group
+            self.sheet.update_cell(row_num, group_col, new_group.capitalize())
+            
+            logger.info(f"User {user_id} group changed to {new_group}")
+            return True, f"User group changed to {new_group.capitalize()}"
+        except Exception as e:
+            logger.error(f"Error changing user group: {e}")
+            return False, "Unable to connect to database. Please try again in a moment"
+    
+    def delete_user(self, user_id):
+        """Delete a user from the challenge (admin only)"""
+        try:
+            row_num, challenger = self.find_challenger(user_id)
+            if not challenger:
+                return False, "User not found"
+            
+            user_name = challenger.get('Name', 'Unknown')
+            
+            # Delete the row
+            self.sheet.delete_rows(row_num)
+            
+            logger.info(f"User {user_id} ({user_name}) deleted from challenge")
+            return True, f"User {user_name} has been removed from the challenge"
+        except Exception as e:
+            logger.error(f"Error deleting user: {e}")
+            return False, "Unable to connect to database. Please try again in a moment"
+    
     def get_admin_stats(self):
         """Get admin statistics"""
         try:
@@ -641,12 +688,16 @@ async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 /admin_user_stats <user_id> - Get detailed user stats
 /admin_add_points <user_id> <points> - Add points to user
 /admin_remove_points <user_id> <points> - Remove points from user
+/admin_change_group <user_id> <group> - Change user's group
+/admin_delete_user <user_id> - Delete user from challenge
 /admin_get_id <name> - Get user ID by name
 /admin_reset - Reset entire challenge (use with caution!)
 
 Examples:
 /admin_strike 123456789 Missed daily tasks
 /admin_add_points 123456789 15
+/admin_change_group 123456789 Senior
+/admin_delete_user 123456789
 /admin_user_stats 123456789
 /admin_get_id John Smith
 
@@ -757,6 +808,47 @@ async def admin_remove_points_command(update: Update, context: ContextTypes.DEFA
     except ValueError:
         await update.message.reply_text("Invalid input. Both user ID and points must be numbers")
 
+async def admin_change_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /admin_change_group command"""
+    user = update.effective_user
+    if not bot_instance.is_admin(user.id):
+        await update.message.reply_text("You are not authorized to use admin commands")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage: /admin_change_group <user_id> <group>\n"
+            "Example: /admin_change_group 123456789 Senior\n"
+            "Groups: Senior, Junior, Finalist"
+        )
+        return
+    try:
+        target_user_id = int(context.args[0])
+        new_group = context.args[1]
+        success, message = bot_instance.change_user_group(target_user_id, new_group)
+        await update.message.reply_text(message)
+    except ValueError:
+        await update.message.reply_text("Invalid user ID. Must be a number")
+
+async def admin_delete_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /admin_delete_user command"""
+    user = update.effective_user
+    if not bot_instance.is_admin(user.id):
+        await update.message.reply_text("You are not authorized to use admin commands")
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage: /admin_delete_user <user_id>\n"
+            "Example: /admin_delete_user 123456789\n"
+            "⚠️ This will permanently remove the user from the challenge!"
+        )
+        return
+    try:
+        target_user_id = int(context.args[0])
+        success, message = bot_instance.delete_user(target_user_id)
+        await update.message.reply_text(message)
+    except ValueError:
+        await update.message.reply_text("Invalid user ID. Must be a number")
+
 async def admin_get_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin_get_id command"""
     user = update.effective_user
@@ -835,9 +927,9 @@ def main():
         application.add_handler(CommandHandler("admin_user_stats", admin_user_stats_command))
         application.add_handler(CommandHandler("admin_add_points", admin_add_points_command))
         application.add_handler(CommandHandler("admin_remove_points", admin_remove_points_command))
-        application.add_handler(CommandHandler("admin_get_id", admin_get_id_command))
         application.add_handler(CommandHandler("admin_change_group", admin_change_group_command))
         application.add_handler(CommandHandler("admin_delete_user", admin_delete_user_command))
+        application.add_handler(CommandHandler("admin_get_id", admin_get_id_command))
         application.add_handler(CommandHandler("admin_stats", admin_stats_command))
         application.add_handler(CommandHandler("admin_reset", admin_reset_command))
         
